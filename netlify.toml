@@ -1,0 +1,7 @@
+[build]
+  command = "pnpm --filter @workspace/cyclewise build"
+  publish = "artifacts/cyclewise/dist/public"
+
+[build.environment]
+  BASE_PATH = "/"
+  PORT = "4173"
