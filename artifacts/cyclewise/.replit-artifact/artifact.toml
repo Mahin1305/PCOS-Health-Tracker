@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Cyclewise PCOS Tracker"
+description = "A private, local-first PCOS health tracker for logging menstrual cycles, symptoms, lifestyle context, medication and appointments, viewing personal trends, and preparing a shareable summary for a healthcare professional."
+version = "1.0.0"
+id = "artifacts/cyclewise"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24276
+
+[services.development]
+run = "pnpm --filter @workspace/cyclewise run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cyclewise", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cyclewise/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24276"
+BASE_PATH = "/"
