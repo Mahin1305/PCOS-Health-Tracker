@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { Form } from '@/components/ui/form';
 import { Activity, AlertCircle, ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, FileText, Heart, Leaf, LockKeyhole, MessageCircle, Plus, Printer, Send, Settings2, ShieldCheck, Sparkles, Trash2, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { analyzeJournal, bmiFor, dateLabel, makeDemoJournal, readJournal, replyToHealthQuestion, saveJournal, type Entry, type Journal, type Reminder, type Symptom } from '@/lib/cyclewise';
+import { analyzeJournal, bmiFor, dateLabel, makeDemoJournal, readJournalResult, replyToHealthQuestion, saveJournal, type Entry, type Journal, type Reminder, type Symptom } from '@/lib/cyclewise';
 
 const navigation = [
   { href: '/', label: 'Overview', icon: Activity },
@@ -18,17 +18,20 @@ const navigation = [
 const symptomOptions = ['Cramps', 'Bloating', 'Headache', 'Fatigue', 'Acne', 'Mood changes', 'Tenderness', 'Other'];
 const today = () => new Date().toISOString().slice(0, 10);
 const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function App() {
-  const [journal, setJournal] = useState<Journal>(() => readJournal());
+  const [initialRead] = useState(() => readJournalResult());
+  const [journal, setJournal] = useState<Journal>(() => initialRead.journal);
   const [toast, setToast] = useState('');
   const [demo, setDemo] = useState(() => journal.sample === true);
-  const [storageError, setStorageError] = useState(false);
+  const [storageError, setStorageError] = useState(initialRead.error || '');
   const [location] = useLocation();
   useEffect(() => {
-    try { saveJournal(journal); setStorageError(false); }
-    catch { setStorageError(true); }
-  }, [journal]);
+    if (storageError) return;
+    try { saveJournal(journal); }
+    catch { setStorageError('Cyclewise could not save your latest changes in this browser. Check available storage, then retry or export a backup.'); }
+  }, [journal, storageError]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(''), 2600);
@@ -47,9 +50,9 @@ function App() {
   const toggleReminder = (id: string) => changeJournal({ ...journal, reminders: journal.reminders.map(item => item.id === id ? { ...item, done: !item.done } : item) }, 'Reminder updated.');
   const removeReminder = (id: string) => changeJournal({ ...journal, reminders: journal.reminders.filter(item => item.id !== id) }, 'Reminder removed.');
   const loadDemo = () => { setJournal(makeDemoJournal()); setDemo(true); setToast('Fictional sample loaded. Replace or erase it any time.'); };
-  const clearData = () => { setJournal({ entries: [], reminders: [], preferences: {} }); setDemo(false); setToast('Your journal is clear.'); };
+  const clearData = () => { setStorageError(''); setJournal({ entries: [], reminders: [], preferences: {} }); setDemo(false); setToast('Your journal is clear.'); };
   const deleteEntry = (id: string) => changeJournal({ ...journal, entries: journal.entries.filter(entry => entry.id !== id) }, 'Daily note removed.');
-  const restore = () => { try { setJournal(readJournal()); setToast('Saved journal reloaded.'); } catch { setStorageError(true); } };
+  const restore = () => { const result = readJournalResult(); if (result.error) { setStorageError(result.error); return; } setJournal(result.journal); setStorageError(''); setToast('Saved journal reloaded.'); };
 
   return (
     <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
@@ -72,7 +75,7 @@ function App() {
             <div className="topbar-left">A little more in tune, one day at a time</div>
             <div className="topbar-right"><ShieldCheck size={15} /><span>Private on this device</span>{demo && <span className="demo-badge">SAMPLE VIEW</span>}</div>
           </header>
-          {storageError && <div className="content" style={{ paddingBottom: 0 }}><div className="data-error" role="alert" data-testid="status-storage-error"><strong>We couldn’t save to this browser.</strong><p style={{ margin: '5px 0 10px', fontSize: 12 }}>Your browser storage may be full or unavailable. Export a backup or try again.</p><button className="btn small" onClick={restore} data-testid="button-retry-storage">Try again</button></div></div>}
+          {storageError && <div className="content" style={{ paddingBottom: 0 }}><div className="data-error" role="alert" data-testid="status-storage-error"><strong>Your local journal needs attention.</strong><p style={{ margin: '5px 0 10px', fontSize: 12 }}>{storageError}</p><button className="btn small" onClick={restore} data-testid="button-retry-storage">Retry</button> <Link href="/settings" className="btn ghost small">Privacy &amp; data</Link></div></div>}
           <Switch>
             <Route path="/"><Dashboard journal={journal} onDemo={loadDemo} /></Route>
             <Route path="/log"><LogPage journal={journal} onSave={addEntry} onDelete={deleteEntry} /></Route>
@@ -207,13 +210,15 @@ function LogPage({ journal, onSave, onDelete, entryId }: { journal: Journal; onS
   const [error, setError] = useState('');
   const toggleSymptom = (name: string) => setSymptoms(current => current.some(s => s.name === name) ? current.filter(s => s.name !== name) : [...current, { name, severity: Number(form.getValues('severity') || 2) }]);
   const submit = (draft: EntryDraft) => {
-    if (!draft.date || !Number.isFinite(new Date(`${draft.date}T12:00:00`).getTime()) || draft.date > today()) { setError('Please choose a valid date, not a future day.'); return; }
+    if (!draft.date) { setError('Choose a date for this note.'); return; }
+    if (!Number.isFinite(new Date(`${draft.date}T12:00:00`).getTime())) { setError('That note date is invalid. Choose a valid calendar date.'); return; }
+    if (draft.date > today()) { setError('The note date can’t be in the future. Choose today or an earlier date.'); return; }
     if (draft.periodStart && draft.periodStart > draft.date) { setError('Period start can’t be after the date of this note.'); return; }
     if (draft.periodEnd && (!draft.periodStart || draft.periodEnd < draft.periodStart || draft.periodEnd > draft.date)) { setError('Period end must be on or after its start and no later than this note.'); return; }
     const numeric: [keyof EntryDraft, string, number, number][] = [['weightKg', 'Weight', 20, 350], ['heightCm', 'Height', 80, 250], ['exerciseMinutes', 'Activity', 0, 1440], ['sleepHours', 'Sleep', 0, 24], ['stressLevel', 'Stress', 1, 5]];
     for (const [key, label, min, max] of numeric) {
       const value = draft[key];
-      if (value && (!Number.isFinite(Number(value)) || Number(value) < min || Number(value) > max)) { setError(`${label} needs to be a number between ${min} and ${max}${key === 'weightKg' ? ' kg' : key === 'heightCm' ? ' cm' : ''}.`); return; }
+      if (value && (!Number.isFinite(Number(value)) || Number(value) < min || Number(value) > max)) { setError(`${label} must be a number from ${min} to ${max}${key === 'weightKg' ? ' kg' : key === 'heightCm' ? ' cm' : ''}. Leave it blank if you don’t want to record it.`); return; }
     }
     const severity = Number(draft.severity || 2);
     const entry: Entry = { id: existing?.id || createId(), date: draft.date, periodStart: draft.periodStart || undefined, periodEnd: draft.periodEnd || undefined, flowLevel: draft.flowLevel || undefined, symptoms: symptoms.map(s => ({ ...s, severity })), weightKg: draft.weightKg ? Number(draft.weightKg) : undefined, heightCm: draft.heightCm ? Number(draft.heightCm) : undefined, dietNotes: draft.dietNotes || undefined, exerciseMinutes: draft.exerciseMinutes ? Number(draft.exerciseMinutes) : undefined, sleepHours: draft.sleepHours ? Number(draft.sleepHours) : undefined, stressLevel: draft.stressLevel ? Number(draft.stressLevel) : undefined, mood: draft.mood || undefined, notes: draft.notes || undefined };
@@ -221,7 +226,7 @@ function LogPage({ journal, onSave, onDelete, entryId }: { journal: Journal; onS
     onSave(entry);
     setLocation('/');
   };
-  const field = (name: keyof EntryDraft, label: string, type = 'text', hint?: string, props: Record<string, unknown> = {}) => <div className="field"><label htmlFor={`entry-${name}`}>{label}</label><input id={`entry-${name}`} type={type} {...form.register(name)} {...props} data-testid={`input-entry-${name}`} /><span className="field-hint">{hint || 'Optional'}</span></div>;
+  const field = (name: keyof EntryDraft, label: string, type = 'text', hint?: string, props: Record<string, unknown> = {}) => <div className="field"><label htmlFor={`entry-${name}`}>{label}</label><input id={`entry-${name}`} type={type} {...form.register(name, { onChange: () => setError('') })} {...props} data-testid={`input-entry-${name}`} /><span className="field-hint">{hint || 'Optional'}</span></div>;
   if (entryId && !existing) return <main className="content page-enter"><PageHeading eyebrow="DAILY JOURNAL" title="Note not found" subtitle="It may have been erased from this browser." /><div className="empty"><Link href="/log" className="btn" data-testid="link-back-to-log">Back to your notes</Link></div></main>;
   return <main className="content page-enter">
     <PageHeading eyebrow="A DAILY NOTE" title={existing ? 'Edit your note' : 'What would you like to remember?'} subtitle="A little or a lot—there’s no checklist to complete." />
@@ -229,7 +234,7 @@ function LogPage({ journal, onSave, onDelete, entryId }: { journal: Journal; onS
       <Panel>
         <Form {...form}><form onSubmit={form.handleSubmit(submit)} noValidate>
           <div className="form-grid">
-            {field('date', 'Date of note', 'date')}
+            {field('date', 'Date of note', 'date', 'Required')}
             <div className="field"><label htmlFor="entry-flowLevel">Flow</label><select id="entry-flowLevel" {...form.register('flowLevel')} data-testid="input-entry-flow"><option value="">Not recorded</option><option>Spotting</option><option>Light</option><option>Medium</option><option>Heavy</option></select><span className="field-hint">Only if relevant today</span></div>
             {field('periodStart', 'Period start date', 'date', 'Use the same date across days of a period if you prefer.')}
             {field('periodEnd', 'Period end date', 'date', 'Optional')}
@@ -284,15 +289,22 @@ type ChatMessage = { role: 'assistant' | 'user'; text: string };
 const suggestedQuestions = ['What does PCOS mean?', 'What should I track?', 'Can PCOS affect fertility?'];
 function AskPage() {
   const [draft, setDraft] = useState('');
+  const [sendError, setSendError] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([{ role: 'assistant', text: 'Hi, I can talk through general PCOS and cycle questions, or help you think of questions for a clinician. What’s on your mind?' }]);
   const conversationEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { conversationEnd.current?.scrollIntoView({ block: 'end' }); }, [messages]);
 
   const sendMessage = (question: string) => {
     const text = question.trim();
-    if (!text) return;
-    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: replyToHealthQuestion(text) }]);
-    setDraft('');
+    if (!text) { setSendError('Type a question before sending.'); return; }
+    try {
+      const reply = replyToHealthQuestion(text);
+      setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: reply }]);
+      setDraft('');
+      setSendError('');
+    } catch {
+      setSendError('Cyclewise couldn’t prepare a reply. Please rephrase your question and try again.');
+    }
   };
 
   return <main className="content page-enter">
@@ -310,9 +322,10 @@ function AskPage() {
       {messages.length === 1 && <div className="chat-suggestions" aria-label="Suggested questions">{suggestedQuestions.map(question => <button type="button" className="chat-suggestion" key={question} onClick={() => sendMessage(question)}>{question}</button>)}</div>}
       <form className="chat-form" onSubmit={event => { event.preventDefault(); sendMessage(draft); }}>
         <label className="sr-only" htmlFor="chat-question">Your question</label>
-        <textarea id="chat-question" value={draft} onChange={event => setDraft(event.target.value)} maxLength={600} placeholder="Type a question..." rows={2} data-testid="input-chat-question" />
+        <textarea id="chat-question" value={draft} onChange={event => { setDraft(event.target.value); setSendError(''); }} maxLength={600} placeholder="Type a question..." rows={2} data-testid="input-chat-question" />
         <button className="btn" type="submit" disabled={!draft.trim()} data-testid="button-send-chat"><Send size={15} /> Send</button>
       </form>
+      <div className="chat-form-meta">{sendError ? <span role="alert" className="error-text">{sendError}</span> : <span>Ask one question at a time for a clearer answer.</span>}<span>{draft.length}/600</span></div>
       <p className="chat-disclaimer">This is a local, topic-based assistant, not a medical professional or generative AI. It can’t diagnose or recommend treatment. For severe symptoms or an emergency, seek urgent medical care.</p>
     </Panel>
   </main>;
@@ -323,7 +336,9 @@ function RemindersPage({ reminders, onAdd, onToggle, onRemove }: { reminders: Re
   const form = useForm<ReminderDraft>({ defaultValues: { type: 'appointment', title: '', dueDate: '', notes: '' } });
   const [error, setError] = useState('');
   const submit = (draft: ReminderDraft) => {
-    if (!draft.title.trim() || !draft.dueDate || !Number.isFinite(new Date(`${draft.dueDate}T12:00:00`).getTime())) { setError('Add a title and a valid date for your reminder.'); return; }
+    if (!draft.title.trim()) { setError('Enter a reminder title.'); return; }
+    if (!draft.dueDate) { setError('Choose a date for this reminder.'); return; }
+    if (!Number.isFinite(new Date(`${draft.dueDate}T12:00:00`).getTime())) { setError('That reminder date is invalid. Choose a valid calendar date.'); return; }
     onAdd({ id: createId(), type: draft.type, title: draft.title.trim(), dueDate: draft.dueDate, notes: draft.notes.trim() || undefined, done: false });
     form.reset({ type: 'appointment', title: '', dueDate: '', notes: '' }); setError('');
   };
@@ -348,6 +363,7 @@ function RemindersPage({ reminders, onAdd, onToggle, onRemove }: { reminders: Re
 }
 
 function Report({ journal }: { journal: Journal }) {
+  const [actionError, setActionError] = useState('');
   const entries = [...journal.entries].sort((a, b) => a.date.localeCompare(b.date));
   const starts = getCycleStarts(entries);
   const lengths = cycleLengths(entries);
@@ -387,19 +403,26 @@ function Report({ journal }: { journal: Journal }) {
     return lines.join('\n');
   };
   const download = () => {
-    const file = new Blob([generateText()], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(file);
-    const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = 'cyclewise-visit-summary.txt'; anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      const file = new Blob([generateText()], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = 'cyclewise-visit-summary.txt'; anchor.click();
+      URL.revokeObjectURL(url);
+      setActionError('');
+    } catch {
+      setActionError('The visit summary could not be downloaded. Check your browser’s download permissions and try again.');
+    }
   };
+  const printReport = () => { try { window.print(); setActionError(''); } catch { setActionError('The print dialog could not be opened. Check your browser settings and try again.'); } };
   const cycleDays = lengths.length ? lengths.map(x => x.days).join(', ') : 'Not enough data';
   const symptomCounts = entries.flatMap(e => e.symptoms).reduce<Record<string, number>>((acc, s) => { acc[s.name] = (acc[s.name] || 0) + 1; return acc; }, {});
   const topSymptoms = Object.entries(symptomCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
   return <main className="content page-enter">
     <PageHeading eyebrow="TAKE YOUR OWN NOTES WITH YOU" title="A summary for your visit" subtitle="A simple, editable-feeling overview of what you’ve logged—ready to print or save." >
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn ghost" onClick={() => window.print()} data-testid="button-print-report"><Printer size={15} /> Print</button><button className="btn" onClick={download} data-testid="button-download-report"><ArrowDownToLine size={15} /> Download .txt</button></div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn ghost" onClick={printReport} data-testid="button-print-report"><Printer size={15} /> Print</button><button className="btn" onClick={download} data-testid="button-download-report"><ArrowDownToLine size={15} /> Download .txt</button></div>
     </PageHeading>
+    {actionError && <div className="notice coral" role="alert" data-testid="status-report-error"><AlertCircle size={16} />{actionError}</div>}
     <NonDiagnosticNotice />
     <Panel className="section-gap report-paper">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', borderBottom: '1px solid #e8e1d1', paddingBottom: 18, marginBottom: 17 }}>
@@ -422,20 +445,53 @@ function Report({ journal }: { journal: Journal }) {
 function SettingsPage({ journal, onClear, onDemo }: { journal: Journal; onClear: () => void; onDemo: () => void }) {
   const [restoreMessage, setRestoreMessage] = useState('');
   const exportBackup = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), journal }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.download = `cyclewise-backup-${today()}.json`; link.click(); URL.revokeObjectURL(url);
+    let url: string | undefined;
+    try {
+      const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), journal }, null, 2)], { type: 'application/json' });
+      url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = `cyclewise-backup-${today()}.json`; link.click();
+      setRestoreMessage('');
+    } catch {
+      setRestoreMessage('The backup could not be downloaded. Check your browser’s download permissions and try again.');
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
   };
   const importBackup = async (file?: File) => {
     if (!file) return;
+    setRestoreMessage('');
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(await file.text());
-      const data = parsed.journal || parsed;
-      if (!Array.isArray(data.entries) || !Array.isArray(data.reminders)) throw new Error('That file does not look like a Cyclewise backup.');
+      parsed = JSON.parse(await file.text()) as unknown;
+    } catch {
+      setRestoreMessage('This file could not be read as JSON. Choose a valid Cyclewise .json backup and try again.');
+      return;
+    }
+    const data = isRecord(parsed) && 'journal' in parsed ? parsed.journal : parsed;
+    if (!isRecord(data) || !Array.isArray(data.entries) || !Array.isArray(data.reminders)) {
+      setRestoreMessage('This JSON is not a Cyclewise backup. It must contain daily entries and reminders.');
+      return;
+    }
+    const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(new Date(`${value}T12:00:00`).getTime());
+    const validEntry = (entry: unknown) => isRecord(entry) && typeof entry.id === 'string' && validDate(entry.date) && Array.isArray(entry.symptoms) && entry.symptoms.every(symptom => isRecord(symptom) && typeof symptom.name === 'string' && Number.isInteger(symptom.severity) && Number(symptom.severity) >= 1 && Number(symptom.severity) <= 3);
+    if (!data.entries.every(validEntry)) {
+      setRestoreMessage('One or more daily entries are incomplete or invalid. The backup was not restored; check its dates and symptom details.');
+      return;
+    }
+    const validReminder = (reminder: unknown) => isRecord(reminder) && typeof reminder.id === 'string' && typeof reminder.title === 'string' && !!reminder.title.trim() && validDate(reminder.dueDate) && (reminder.type === 'appointment' || reminder.type === 'medication') && typeof reminder.done === 'boolean';
+    if (!data.reminders.every(validReminder)) {
+      setRestoreMessage('One or more reminders are incomplete or invalid. The backup was not restored; check each title, date, type, and status.');
+      return;
+    }
+    if (data.preferences != null && !isRecord(data.preferences)) {
+      setRestoreMessage('The backup preferences are invalid. The backup was not restored.');
+      return;
+    }
+    try {
       localStorage.setItem('cyclewise-journal-v1', JSON.stringify({ entries: data.entries, reminders: data.reminders, preferences: data.preferences || {} }));
       window.location.reload();
     } catch {
-      setRestoreMessage('We couldn’t read that backup. Choose a Cyclewise JSON backup and try again.');
+      setRestoreMessage('The backup is valid, but this browser could not store it. Check available storage and try again; the current journal was not intentionally changed.');
     }
   };
   const erase = () => { if (window.confirm('Erase all Cyclewise notes and reminders stored in this browser? This cannot be undone. Export a backup first if you want to keep a copy.')) onClear(); };
@@ -453,7 +509,7 @@ function SettingsPage({ journal, onClear, onDemo }: { journal: Journal; onClear:
         <div className="entry-row"><div className="date-tile"><b>{journal.reminders.length}</b>items</div><div className="row-main"><strong>Reminders</strong><span>Stored on this device</span></div></div>
         <div style={{ display: 'grid', gap: 9, marginTop: 17 }}>
           <button className="btn" onClick={exportBackup} data-testid="button-export-backup"><ArrowDownToLine size={15} /> Download a data backup</button>
-          <label className="btn secondary" htmlFor="restore-backup" style={{ cursor: 'pointer' }} data-testid="label-import-backup"><ArrowRight size={15} /> Restore from backup</label><input id="restore-backup" type="file" accept="application/json,.json" onChange={e => importBackup(e.target.files?.[0])} style={{ display: 'none' }} data-testid="input-import-backup" />
+          <label className="btn secondary" htmlFor="restore-backup" style={{ cursor: 'pointer' }} data-testid="label-import-backup"><ArrowRight size={15} /> Restore from backup</label><input id="restore-backup" type="file" accept="application/json,.json" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void importBackup(file); }} style={{ display: 'none' }} data-testid="input-import-backup" />
           {restoreMessage && <div className="notice coral" role="alert" data-testid="status-restore-error"><AlertCircle size={15} />{restoreMessage}</div>}
         </div>
       </Panel>

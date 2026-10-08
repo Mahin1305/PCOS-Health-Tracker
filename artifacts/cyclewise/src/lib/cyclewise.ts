@@ -24,18 +24,33 @@ export type Reminder = {
   done: boolean;
 };
 export type Journal = { entries: Entry[]; reminders: Reminder[]; preferences: { usualCycleDays?: number }; sample?: boolean };
+export type JournalReadResult = { journal: Journal; error?: string };
 export const STORAGE_KEY = 'cyclewise-journal-v1';
 export const blankJournal = (): Journal => ({ entries: [], reminders: [], preferences: {}, sample: false });
-export function readJournal(): Journal {
+const isRecordValue = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const isDateOnly = (value: unknown) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+export function readJournalResult(): JournalReadResult {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return blankJournal();
-    const parsed = JSON.parse(raw) as Partial<Journal>;
-    return { entries: Array.isArray(parsed.entries) ? parsed.entries : [], reminders: Array.isArray(parsed.reminders) ? parsed.reminders : [], preferences: parsed.preferences || {}, sample: !!parsed.sample };
+    if (!raw) return { journal: blankJournal() };
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid journal format');
+    const data = parsed as Partial<Journal>;
+    if (!Array.isArray(data.entries) || !Array.isArray(data.reminders)) throw new Error('Invalid journal structure');
+    const validEntry = (entry: unknown) => isRecordValue(entry) && typeof entry.id === 'string' && isDateOnly(entry.date) && Array.isArray(entry.symptoms) && entry.symptoms.every(symptom => isRecordValue(symptom) && typeof symptom.name === 'string' && Number.isInteger(symptom.severity) && Number(symptom.severity) >= 1 && Number(symptom.severity) <= 3) && ['periodStart', 'periodEnd'].every(key => entry[key] == null || isDateOnly(entry[key]));
+    const validReminder = (reminder: unknown) => isRecordValue(reminder) && typeof reminder.id === 'string' && typeof reminder.title === 'string' && !!reminder.title.trim() && isDateOnly(reminder.dueDate) && (reminder.type === 'appointment' || reminder.type === 'medication') && typeof reminder.done === 'boolean';
+    if (!data.entries.every(validEntry) || !data.reminders.every(validReminder) || (data.preferences != null && !isRecordValue(data.preferences))) throw new Error('Invalid journal records');
+    return { journal: { entries: data.entries, reminders: data.reminders, preferences: data.preferences || {}, sample: !!data.sample } };
   } catch {
-    return blankJournal();
+    return { journal: blankJournal(), error: 'The saved journal could not be read. It has not been overwritten. Retry, or use Privacy & data to manage local records.' };
   }
 }
+export function readJournal(): Journal { return readJournalResult().journal; }
 export function saveJournal(journal: Journal) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(journal));
 }
@@ -77,7 +92,12 @@ export function analyzeJournal(entries: Entry[]): string[] {
 }
 
 export function replyToHealthQuestion(question: string): string {
-  const text = question.toLowerCase();
+  const text = question.trim().toLowerCase();
+
+  if (!text) return 'Please type a question first. You can ask about PCOS, cycle changes, symptoms, fertility, treatment questions, tracking, or privacy.';
+  if (/^(help|why|what|how|it|this|that)[?.!]*$/.test(text)) {
+    return 'I’m not sure what you mean yet. Could you add a little detail? For example, are you asking about a symptom, a cycle change, fertility, treatment, tracking, or privacy?';
+  }
 
   if (/severe pain|worst pain|faint|pass(?:ed)? out|very heavy bleeding|can't breathe|cannot breathe|emergency/.test(text)) {
     return 'If you may be experiencing a medical emergency, seek urgent medical care now or contact your local emergency service. I can’t assess urgency or provide emergency care through this chat.';
@@ -106,7 +126,7 @@ export function replyToHealthQuestion(question: string): string {
   if (/what is pcos|about pcos|explain pcos|pcos mean|\bpcos\b/.test(text)) {
     return 'PCOS (polycystic ovary syndrome) is a hormone-related condition that can affect ovulation and may involve signs of higher androgen levels. It varies from person to person. A clinician assesses symptoms and, when appropriate, tests while considering other causes; the name alone doesn’t mean ovarian cysts are always present.';
   }
-  return 'I can share general information about PCOS, cycle changes, symptoms, fertility, treatment questions, tracking, and privacy. I can’t diagnose or recommend treatment. What part would you like to explore?';
+  return 'I’m not sure which part you mean. I can share general information about PCOS, cycle changes, symptoms, fertility, treatment questions, tracking, and privacy. Please rephrase your question or choose one of those topics. I can’t diagnose or recommend treatment.';
 }
 
 export function makeDemoJournal(): Journal {
