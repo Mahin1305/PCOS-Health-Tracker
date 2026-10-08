@@ -43,6 +43,72 @@ export const bmiFor = (entry?: Entry) => entry?.weightKg && entry.heightCm ? ent
 export const dateLabel = (date: string, options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }) =>
   new Date(`${date}T12:00:00`).toLocaleDateString(undefined, options);
 
+export function analyzeJournal(entries: Entry[]): string[] {
+  const insights: string[] = [];
+  const starts = [...new Set(entries.flatMap(entry => entry.periodStart ? [entry.periodStart] : []))].sort();
+  const intervals = starts.slice(1).map((date, index) => Math.round((new Date(`${date}T12:00:00`).getTime() - new Date(`${starts[index]}T12:00:00`).getTime()) / 86400000));
+
+  if (intervals.length >= 2) {
+    const average = Math.round(intervals.reduce((sum, days) => sum + days, 0) / intervals.length);
+    const min = Math.min(...intervals);
+    const max = Math.max(...intervals);
+    insights.push(`Across ${intervals.length} recorded intervals, the average gap between period starts is ${average} days (range ${min}–${max} days). This describes past dates only; it does not predict a future cycle.`);
+  }
+
+  const symptomCounts = new Map<string, number>();
+  for (const entry of entries) {
+    for (const symptom of new Set(entry.symptoms.map(item => item.name))) {
+      symptomCounts.set(symptom, (symptomCounts.get(symptom) || 0) + 1);
+    }
+  }
+  const repeatedSymptoms = [...symptomCounts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]);
+  if (repeatedSymptoms.length) {
+    const [name, count] = repeatedSymptoms[0];
+    insights.push(`${name} was recorded in ${count} separate notes. This is a count of what you logged, not an explanation of why it happened.`);
+  }
+
+  const sleepEntries = entries.flatMap(entry => entry.sleepHours == null ? [] : [entry.sleepHours]);
+  if (sleepEntries.length >= 3) {
+    const average = (sleepEntries.reduce((sum, hours) => sum + hours, 0) / sleepEntries.length).toFixed(1);
+    insights.push(`You recorded sleep on ${sleepEntries.length} days, averaging ${average} hours on those days. Unlogged days are not included.`);
+  }
+
+  return insights;
+}
+
+export function replyToHealthQuestion(question: string): string {
+  const text = question.toLowerCase();
+
+  if (/severe pain|worst pain|faint|pass(?:ed)? out|very heavy bleeding|can't breathe|cannot breathe|emergency/.test(text)) {
+    return 'If you may be experiencing a medical emergency, seek urgent medical care now or contact your local emergency service. I can’t assess urgency or provide emergency care through this chat.';
+  }
+  if (/diagnos|do i have|could i have|is this pcos/.test(text)) {
+    return 'A symptom or journal pattern alone can’t confirm PCOS. A clinician can review your cycle history, symptoms, and any appropriate tests, and consider other possible causes. I can help you organize questions for that visit.';
+  }
+  if (/fertil|pregnan|conceiv|ovulat/.test(text)) {
+    return 'PCOS can make ovulation less predictable for some people, but experiences vary and many people with PCOS do become pregnant. A clinician can discuss your goals and options with you; this chat can’t estimate your personal fertility.';
+  }
+  if (/medicine|medication|metformin|birth control|contracept|supplement|treatment|take .* pill|stop .* pill/.test(text)) {
+    return 'PCOS care is individualized, and medicines or supplements can have risks and interactions. Don’t start, stop, or change a prescribed treatment based on this chat; ask your clinician or pharmacist what is appropriate for you.';
+  }
+  if (/period|cycle|missed|irregular|late/.test(text)) {
+    return 'Cycle timing can vary for many reasons. Your log can help you bring dates and changes to a clinician, but it can’t identify a cause or predict what will happen next. If a period is missed and pregnancy is possible, consider a pregnancy test and contact a clinician with concerns.';
+  }
+  if (/symptom|acne|hair growth|hair loss|cramp|pain|bloat|fatigue|weight/.test(text)) {
+    return 'Symptoms such as acne, changes in hair growth, fatigue, or weight can have many causes and don’t confirm PCOS on their own. You can note when they happen and how they affect you, then discuss persistent or concerning changes with a clinician.';
+  }
+  if (/track|journal|pattern|log|record/.test(text)) {
+    return 'A useful log can be simple: dates, symptoms you want to remember, and any context that matters to you. Missing days are okay. Cyclewise summarizes only what you entered; those summaries show records, not causes or diagnoses.';
+  }
+  if (/privacy|private|stored|save|server|who can see/.test(text)) {
+    return 'Your journal is stored in this browser on this device. Chat messages are handled locally and are not saved to your journal or sent to a server. Anyone with access to this browser profile may still be able to see local data.';
+  }
+  if (/what is pcos|about pcos|explain pcos|pcos mean|\bpcos\b/.test(text)) {
+    return 'PCOS (polycystic ovary syndrome) is a hormone-related condition that can affect ovulation and may involve signs of higher androgen levels. It varies from person to person. A clinician assesses symptoms and, when appropriate, tests while considering other causes; the name alone doesn’t mean ovarian cysts are always present.';
+  }
+  return 'I can share general information about PCOS, cycle changes, symptoms, fertility, treatment questions, tracking, and privacy. I can’t diagnose or recommend treatment. What part would you like to explore?';
+}
+
 export function makeDemoJournal(): Journal {
   const daysAgo = (n: number) => {
     const d = new Date();

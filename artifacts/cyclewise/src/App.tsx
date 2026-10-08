@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { Form } from '@/components/ui/form';
-import { Activity, AlertCircle, ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, FileText, Heart, Leaf, LockKeyhole, Plus, Printer, Settings2, ShieldCheck, Sparkles, Trash2, TrendingUp } from 'lucide-react';
+import { Activity, AlertCircle, ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, FileText, Heart, Leaf, LockKeyhole, MessageCircle, Plus, Printer, Send, Settings2, ShieldCheck, Sparkles, Trash2, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { bmiFor, dateLabel, makeDemoJournal, readJournal, saveJournal, type Entry, type Journal, type Reminder, type Symptom } from '@/lib/cyclewise';
+import { analyzeJournal, bmiFor, dateLabel, makeDemoJournal, readJournal, replyToHealthQuestion, saveJournal, type Entry, type Journal, type Reminder, type Symptom } from '@/lib/cyclewise';
 
 const navigation = [
   { href: '/', label: 'Overview', icon: Activity },
   { href: '/log', label: 'Daily log', icon: Plus },
   { href: '/trends', label: 'Patterns', icon: BarChart3 },
+  { href: '/ask', label: 'Ask Cyclewise', icon: MessageCircle },
   { href: '/reminders', label: 'Reminders', icon: CalendarDays },
   { href: '/report', label: 'Visit summary', icon: FileText },
   { href: '/settings', label: 'Privacy & data', icon: Settings2 },
@@ -77,6 +78,7 @@ function App() {
             <Route path="/log"><LogPage journal={journal} onSave={addEntry} onDelete={deleteEntry} /></Route>
             <Route path="/log/:id">{params => <LogPage journal={journal} onSave={addEntry} onDelete={deleteEntry} entryId={params.id} />}</Route>
             <Route path="/trends"><Trends journal={journal} /></Route>
+            <Route path="/ask"><AskPage /></Route>
             <Route path="/reminders"><RemindersPage reminders={journal.reminders} onAdd={addReminder} onToggle={toggleReminder} onRemove={removeReminder} /></Route>
             <Route path="/report"><Report journal={journal} /></Route>
             <Route path="/settings"><SettingsPage journal={journal} onClear={clearData} onDemo={loadDemo} /></Route>
@@ -85,7 +87,7 @@ function App() {
         </div>
       </div>
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {navigation.map(({ href, label, icon: Icon }) => <Link href={href} key={href} className={`${location === href ? 'active' : ''}`} data-testid={`mobile-nav-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon /><span>{label === 'Overview' ? 'Home' : label === 'Daily log' ? 'Log' : label === 'Patterns' ? 'Trends' : label === 'Visit summary' ? 'Report' : label === 'Privacy & data' ? 'Privacy' : label}</span></Link>)}
+        {navigation.map(({ href, label, icon: Icon }) => <Link href={href} key={href} className={`${location === href ? 'active' : ''}`} data-testid={`mobile-nav-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon /><span>{label === 'Overview' ? 'Home' : label === 'Daily log' ? 'Log' : label === 'Patterns' ? 'Trends' : label === 'Ask Cyclewise' ? 'Ask' : label === 'Reminders' ? 'Remind' : label === 'Visit summary' ? 'Report' : label === 'Privacy & data' ? 'Privacy' : label}</span></Link>)}
       </nav>
       {toast && <div role="status" className="toast-msg" data-testid="status-toast">{toast}</div>}
     </WouterRouter>
@@ -263,6 +265,7 @@ function Trends({ journal }: { journal: Journal }) {
   const bodyData = entries.filter(e => e.weightKg || bmiFor(e)).map(e => ({ date: dateLabel(e.date, { month: 'short', day: 'numeric' }), weight: e.weightKg, bmi: bmiFor(e) ? Number(bmiFor(e)!.toFixed(1)) : undefined }));
   const dailyData = entries.filter(e => e.sleepHours || e.exerciseMinutes || e.stressLevel).map(e => ({ date: dateLabel(e.date, { month: 'short', day: 'numeric' }), sleep: e.sleepHours, movement: e.exerciseMinutes, stress: e.stressLevel }));
   const prompts = patternNotes(entries);
+  const personalInsights = analyzeJournal(entries);
   return <main className="content page-enter">
     <PageHeading eyebrow="LOOKING BACK, GENTLY" title="Your patterns, over time" subtitle="Charts are a way to organize your notes—not an explanation of what they mean." />
     <NonDiagnosticNotice />
@@ -272,7 +275,46 @@ function Trends({ journal }: { journal: Journal }) {
     {tab === 'cycle' && <Panel><div className="card-title"><div><div className="eyebrow">DAYS BETWEEN PERIOD STARTS</div><h2>Cycle timing</h2></div><span className="tag">{cycleData.length} intervals</span></div>{cycleData.length >= 2 ? <div className="metric-chart" data-testid="chart-cycle-trends"><ResponsiveContainer width="100%" height="100%"><LineChart data={cycleData} margin={{ top: 12, right: 20, bottom: 0, left: -12 }}><CartesianGrid stroke="#e8e3d7" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 10, borderColor: '#e2dacc', fontSize: 11 }} /><Line type="monotone" dataKey="cycle" name="Days between starts" stroke="#39766a" strokeWidth={2.5} dot={{ r: 4, fill: '#c87c5f', stroke: '#fbf9f3', strokeWidth: 2 }} /></LineChart></ResponsiveContainer></div> : <EmptyState title="Not enough dates to chart yet" body="A cycle interval needs two period start dates. Even with more dates, keep in mind that a sparse journal can’t establish a personal pattern." action={<Link href="/log" className="btn secondary small" data-testid="button-log-period-trends">Add a period date</Link>} />}</Panel>}
     {tab === 'body' && <div className="grid metric-grid"><Panel><div className="card-title"><div><div className="eyebrow">OPTIONAL MEASUREMENTS</div><h2>Weight over time</h2></div></div>{bodyData.length >= 2 ? <div className="metric-chart" data-testid="chart-weight"><ResponsiveContainer width="100%" height="100%"><LineChart data={bodyData}><CartesianGrid stroke="#e8e3d7" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><YAxis domain={['auto', 'auto']} tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 10, borderColor: '#e2dacc', fontSize: 11 }} /><Line type="monotone" dataKey="weight" name="Weight (kg)" stroke="#c37b5f" strokeWidth={2.5} dot={{ r: 3 }} connectNulls /></LineChart></ResponsiveContainer></div> : <EmptyState title="No measurement trend yet" body="Add optional measurements on a few different days to see them over time." />}</Panel><Panel><div className="card-title"><div><div className="eyebrow">A ROUGH CALCULATION</div><h2>BMI estimate</h2></div></div>{bodyData.filter(d => d.bmi).length >= 2 ? <div className="metric-chart" data-testid="chart-bmi"><ResponsiveContainer width="100%" height="100%"><LineChart data={bodyData}><CartesianGrid stroke="#e8e3d7" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><YAxis domain={['auto', 'auto']} tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 10, borderColor: '#e2dacc', fontSize: 11 }} /><Line type="monotone" dataKey="bmi" name="BMI estimate" stroke="#39766a" strokeWidth={2.5} dot={{ r: 3 }} connectNulls /></LineChart></ResponsiveContainer></div> : <EmptyState title="BMI needs a few paired entries" body="An estimate appears only when the same note includes both height and weight. BMI is a limited measure and doesn’t describe an individual’s health." />}</Panel><div className="notice coral" style={{ gridColumn: '1/-1' }}><CircleHelp size={17} /><span>Measurements are optional. Weight and BMI changes can have many contexts and should not be treated as targets or judgments.</span></div></div>}
     {tab === 'daily' && <Panel><div className="card-title"><div><div className="eyebrow">NOT EVERY DAY LOOKS THE SAME</div><h2>Sleep, movement & stress</h2></div></div>{dailyData.length >= 2 ? <div className="metric-chart" data-testid="chart-daily-patterns"><ResponsiveContainer width="100%" height="100%"><LineChart data={dailyData} margin={{ left: -10, right: 10 }}><CartesianGrid stroke="#e8e3d7" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><YAxis yAxisId="left" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} tick={{ fill: '#819087', fontSize: 10 }} /><Tooltip contentStyle={{ borderRadius: 10, borderColor: '#e2dacc', fontSize: 11 }} /><Line yAxisId="left" type="monotone" dataKey="sleep" name="Sleep (hours)" stroke="#39766a" strokeWidth={2.3} dot={{ r: 3 }} connectNulls /><Line yAxisId="left" type="monotone" dataKey="stress" name="Stress (1–5)" stroke="#c37b5f" strokeWidth={2} dot={{ r: 3 }} connectNulls /><Line yAxisId="right" type="monotone" dataKey="movement" name="Movement (minutes)" stroke="#879e70" strokeWidth={2} dot={{ r: 3 }} connectNulls /></LineChart></ResponsiveContainer></div> : <EmptyState title="A few more day notes may help" body="Add sleep, movement, or stress notes on different days. You can leave any of those fields blank." action={<Link href="/log" className="btn secondary small" data-testid="button-add-daily-trends">Add a daily note</Link>} />}</Panel>}
-    <div className="grid dashboard-grid section-gap"><Panel><div className="card-title"><div><div className="eyebrow">PROMPTS, NOT CONCLUSIONS</div><h2>Bring the record, ask your questions</h2></div><FileText size={18} color="#b87558" /></div>{prompts.length ? <div style={{ display: 'grid', gap: 10 }}>{prompts.map((text, i) => <div className="insight" key={i} data-testid={`trend-prompt-${i}`}><AlertCircle size={16} />{text}</div>)}</div> : <p className="subhead" data-testid="text-no-prompts">{entries.length < 3 ? 'Short or sparse notes can’t establish patterns. As you add information, it may become easier to see what you want to ask about.' : 'No specific prompts emerge from these entries. That is not evidence for or against anything; your clinician can help interpret your records.'}</p>}</Panel><Panel><h3>Need the details together?</h3><p className="subhead" style={{ marginBottom: 15 }}>Make a clean, clinician-facing summary from the notes you choose to keep.</p><Link href="/report" className="btn secondary" data-testid="link-trends-to-report"><FileText size={15} /> Prepare visit summary</Link></Panel></div>
+    <div className="grid dashboard-grid section-gap"><Panel><div className="card-title"><div><div className="eyebrow">PRIVATE JOURNAL ANALYSIS</div><h2>Your notes, in context</h2></div><Sparkles size={18} color="#b87558" /></div><p className="subhead" style={{ marginBottom: 13 }}>This on-device analyzer looks for simple patterns in recorded cycle dates, symptoms, and sleep. Your details are not sent to an AI service.</p>{personalInsights.length ? <div style={{ display: 'grid', gap: 10 }}>{personalInsights.map((text, i) => <div className="insight" key={i} data-testid={`insight-personal-${i}`}><Sparkles size={16} />{text}</div>)}</div> : <p className="subhead" data-testid="text-no-personal-insights">{entries.length < 3 ? 'A few more notes may reveal simple summaries. Only information you choose to record is considered.' : 'There is not enough repeated information for a useful summary yet. Sparse notes are completely okay.'}</p>}<div style={{ marginTop: 14 }}><NonDiagnosticNotice /></div></Panel><Panel><div className="card-title"><div><div className="eyebrow">PROMPTS, NOT CONCLUSIONS</div><h2>Bring the record, ask your questions</h2></div><FileText size={18} color="#b87558" /></div>{prompts.length ? <div style={{ display: 'grid', gap: 10 }}>{prompts.map((text, i) => <div className="insight" key={i} data-testid={`trend-prompt-${i}`}><AlertCircle size={16} />{text}</div>)}</div> : <p className="subhead" data-testid="text-no-prompts">{entries.length < 3 ? 'Short or sparse notes can’t establish patterns. As you add information, it may become easier to see what you want to ask about.' : 'No specific prompts emerge from these entries. That is not evidence for or against anything; your clinician can help interpret your records.'}</p>}</Panel></div>
+    <div className="section-gap"><Panel><h3>Need the details together?</h3><p className="subhead" style={{ marginBottom: 15 }}>Make a clean, clinician-facing summary from the notes you choose to keep.</p><Link href="/report" className="btn secondary" data-testid="link-trends-to-report"><FileText size={15} /> Prepare visit summary</Link></Panel></div>
+  </main>;
+}
+
+type ChatMessage = { role: 'assistant' | 'user'; text: string };
+const suggestedQuestions = ['What does PCOS mean?', 'What should I track?', 'Can PCOS affect fertility?'];
+function AskPage() {
+  const [draft, setDraft] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([{ role: 'assistant', text: 'Hi, I can talk through general PCOS and cycle questions, or help you think of questions for a clinician. What’s on your mind?' }]);
+  const conversationEnd = useRef<HTMLDivElement>(null);
+  useEffect(() => { conversationEnd.current?.scrollIntoView({ block: 'end' }); }, [messages]);
+
+  const sendMessage = (question: string) => {
+    const text = question.trim();
+    if (!text) return;
+    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: replyToHealthQuestion(text) }]);
+    setDraft('');
+  };
+
+  return <main className="content page-enter">
+    <PageHeading eyebrow="A PRIVATE PLACE TO ASK" title="Ask Cyclewise" subtitle="Talk through general questions about PCOS, cycles, and your journal." />
+    <div className="notice section-gap"><LockKeyhole size={17} /><div><strong>Private and session-only.</strong> Replies use local reference topics. Your messages are not sent to a server or saved in your journal.</div></div>
+    <Panel className="section-gap chat-panel">
+      <div className="card-title"><div><div className="eyebrow">GENERAL HEALTH INFORMATION</div><h2>A question on your mind?</h2></div><MessageCircle size={19} color="#b87558" /></div>
+      <div className="chat-transcript" role="log" aria-label="Conversation with Cyclewise" aria-live="polite">
+        {messages.map((message, index) => <div className={`chat-message ${message.role}`} key={index}>
+          <span className="chat-speaker">{message.role === 'user' ? 'You' : 'Cyclewise'}</span>
+          <p>{message.text}</p>
+        </div>)}
+        <div ref={conversationEnd} />
+      </div>
+      {messages.length === 1 && <div className="chat-suggestions" aria-label="Suggested questions">{suggestedQuestions.map(question => <button type="button" className="chat-suggestion" key={question} onClick={() => sendMessage(question)}>{question}</button>)}</div>}
+      <form className="chat-form" onSubmit={event => { event.preventDefault(); sendMessage(draft); }}>
+        <label className="sr-only" htmlFor="chat-question">Your question</label>
+        <textarea id="chat-question" value={draft} onChange={event => setDraft(event.target.value)} maxLength={600} placeholder="Type a question..." rows={2} data-testid="input-chat-question" />
+        <button className="btn" type="submit" disabled={!draft.trim()} data-testid="button-send-chat"><Send size={15} /> Send</button>
+      </form>
+      <p className="chat-disclaimer">This is a local, topic-based assistant, not a medical professional or generative AI. It can’t diagnose or recommend treatment. For severe symptoms or an emergency, seek urgent medical care.</p>
+    </Panel>
   </main>;
 }
 
