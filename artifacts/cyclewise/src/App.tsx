@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { Form } from '@/components/ui/form';
-import { Activity, AlertCircle, ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, FileText, Heart, Leaf, LockKeyhole, MessageCircle, Plus, Printer, Send, Settings2, ShieldCheck, Sparkles, Trash2, TrendingUp } from 'lucide-react';
+import { Activity, AlertCircle, ArrowDownToLine, ArrowRight, BarChart3, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, ExternalLink, FileText, Heart, Leaf, LockKeyhole, MapPin, MessageCircle, Plus, Printer, Search, Send, Settings2, ShieldCheck, Sparkles, Trash2, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { analyzeJournal, bmiFor, dateLabel, makeDemoJournal, readJournalResult, replyToHealthQuestion, saveJournal, type Entry, type Journal, type Reminder, type Symptom } from '@/lib/cyclewise';
 
@@ -68,7 +68,7 @@ function App() {
               return <Link href={href} key={href} className={`nav-link${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon size={17} strokeWidth={1.8} /><span>{label}</span></Link>;
             })}
           </nav>
-          <div className="privacy-note"><strong><LockKeyhole size={14} /> Just for you</strong>Your notes stay in this browser. Nothing is sent to a server.</div>
+          <div className="privacy-note"><strong><LockKeyhole size={14} /> Just for you</strong>Your journal stays in this browser. Map searches open externally only when you choose.</div>
         </aside>
         <div className="main-area">
           <header className="topbar">
@@ -362,6 +362,36 @@ function RemindersPage({ reminders, onAdd, onToggle, onRemove }: { reminders: Re
   </main>;
 }
 
+function NearbyCareSearch() {
+  const [area, setArea] = useState('');
+  const [searchArea, setSearchArea] = useState('');
+  const [error, setError] = useState('');
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = area.trim();
+    if (value.length < 2) { setError('Enter a city or postal code with at least 2 characters.'); setSearchArea(''); return; }
+    if (value.length > 100) { setError('Area searches must be 100 characters or fewer.'); setSearchArea(''); return; }
+    setError('');
+    setSearchArea(value);
+  };
+  const searches = [
+    { label: 'PCOS clinics', query: `PCOS clinic near ${searchArea}` },
+    { label: 'Gynecologists', query: `gynecologist near ${searchArea}` },
+    { label: 'Endocrinologists', query: `endocrinologist near ${searchArea}` },
+    { label: 'Hospitals with gynecology services', query: `hospital gynecology near ${searchArea}` },
+  ];
+  return <Panel className="section-gap nearby-care">
+    <div className="card-title"><div><div className="eyebrow">FIND CARE NEAR YOU</div><h2>Nearby PCOS care</h2></div><MapPin size={19} color="#b87558" /></div>
+    <p className="subhead nearby-copy">Search by city or postal code for PCOS clinics, gynecologists, endocrinologists, or hospitals with gynecology services. Results and availability are provided by Google Maps and may need verification.</p>
+    <form className="nearby-form" onSubmit={submit}>
+      <div className="field nearby-field"><label htmlFor="nearby-area">City or postal code</label><input id="nearby-area" type="text" value={area} onChange={event => { setArea(event.target.value); setError(''); setSearchArea(''); }} maxLength={100} autoComplete="off" placeholder="e.g. Boston, MA or 02108" data-testid="input-nearby-area" /><span className="field-hint">No GPS or precise address needed. This stays on the page until you choose a map link.</span></div>
+      <button className="btn" type="submit" data-testid="button-search-nearby"><Search size={15} /> Find nearby care</button>
+    </form>
+    {error && <div className="notice coral nearby-error" role="alert" data-testid="status-nearby-error"><AlertCircle size={15} />{error}</div>}
+    {searchArea && <div className="nearby-results" data-testid="list-nearby-results"><h3>Search Google Maps near {searchArea}</h3><div className="nearby-links">{searches.map(({ label, query }) => <a className="nearby-link" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`} target="_blank" rel="noopener noreferrer" key={label} data-testid={`link-nearby-${label.toLowerCase().replaceAll(' ', '-')}`}>{label}<ExternalLink size={14} /></a>)}</div><p className="field-hint">Google receives the selected search terms when you open a link. Cyclewise does not receive your location or map results.</p></div>}
+  </Panel>;
+}
+
 function Report({ journal }: { journal: Journal }) {
   const [actionError, setActionError] = useState('');
   const entries = [...journal.entries].sort((a, b) => a.date.localeCompare(b.date));
@@ -424,6 +454,7 @@ function Report({ journal }: { journal: Journal }) {
     </PageHeading>
     {actionError && <div className="notice coral" role="alert" data-testid="status-report-error"><AlertCircle size={16} />{actionError}</div>}
     <NonDiagnosticNotice />
+    <NearbyCareSearch />
     <Panel className="section-gap report-paper">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', borderBottom: '1px solid #e8e1d1', paddingBottom: 18, marginBottom: 17 }}>
         <div><div className="eyebrow">CYCLEWISE · PERSONAL VISIT SUMMARY</div><h2 style={{ fontSize: 28 }}>My notes for a conversation</h2><p className="subhead">Prepared {new Date().toLocaleDateString()} · Self-reported information</p></div><div className="tag"><LockKeyhole size={12} style={{ marginRight: 5 }} /> Local record</div>
@@ -496,12 +527,12 @@ function SettingsPage({ journal, onClear, onDemo }: { journal: Journal; onClear:
   };
   const erase = () => { if (window.confirm('Erase all Cyclewise notes and reminders stored in this browser? This cannot be undone. Export a backup first if you want to keep a copy.')) onClear(); };
   return <main className="content page-enter">
-    <PageHeading eyebrow="YOUR SPACE, YOUR CHOICE" title="Privacy & data" subtitle="No login, no network requests, and no remote storage. Your journal lives in this browser." />
+    <PageHeading eyebrow="YOUR SPACE, YOUR CHOICE" title="Privacy & data" subtitle="No login or remote journal storage. Your journal lives in this browser." />
     <div className="grid dashboard-grid">
       <Panel>
         <div className="card-title"><div><div className="eyebrow">LOCAL BY DEFAULT</div><h2>Your journal stays on this device</h2></div><LockKeyhole size={19} color="#b87558" /></div>
         <p className="subhead" style={{ maxWidth: 550 }}>Cyclewise stores entries and reminders in your browser’s local storage. Clearing browser data can remove them. This is a personal journal, not a secure medical record or a substitute for care.</p>
-        <div className="privacy-box section-gap"><strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}><ShieldCheck size={16} /> A few practical details</strong><ul style={{ fontSize: 11, lineHeight: 1.8, paddingLeft: 19, marginBottom: 0 }}><li>There is no account, analytics backend, or server sync.</li><li>Anyone with access to this browser profile may be able to view its saved data.</li><li>Use backup export to keep a copy before changing devices or clearing browser storage.</li></ul></div>
+        <div className="privacy-box section-gap"><strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}><ShieldCheck size={16} /> A few practical details</strong><ul style={{ fontSize: 11, lineHeight: 1.8, paddingLeft: 19, marginBottom: 0 }}><li>There is no account, analytics backend, or server sync.</li><li>Nearby-care searches open Google Maps only when you choose a result; Google receives that search query.</li><li>Anyone with access to this browser profile may be able to view its saved data.</li><li>Use backup export to keep a copy before changing devices or clearing browser storage.</li></ul></div>
       </Panel>
       <Panel>
         <div className="card-title"><div><div className="eyebrow">YOUR DATA</div><h2>Take it or start again</h2></div><ArrowDownToLine size={18} color="#b87558" /></div>

@@ -190,6 +190,18 @@ h3 { font-size:14px; font-weight:700; margin-bottom:10px; }
 .chat-form textarea:focus { border-color:#4f8878; box-shadow:0 0 0 3px rgba(55,111,96,.12); }
 .chat-form button:disabled { opacity:.48; cursor:not-allowed; }
 .chat-disclaimer { margin:12px 0 0; color:#818a80; font-size:10px; line-height:1.5; }
+.nearby-care { max-width:900px; margin-left:auto; margin-right:auto; }
+.nearby-copy { margin-bottom:15px; }
+.nearby-form { display:flex; align-items:flex-end; gap:11px; }
+.nearby-field { flex:1; min-width:0; }
+.nearby-form .btn { flex:0 0 auto; }
+.nearby-error { margin-top:12px; }
+.nearby-results { margin-top:17px; border-top:1px solid #e8e1d1; padding-top:15px; }
+.nearby-results h3 { margin-bottom:10px; color:#31564c; }
+.nearby-links { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.nearby-link { display:inline-flex; align-items:center; gap:8px; min-height:36px; border:1px solid #ded8c9; border-radius:9px; padding:7px 10px; color:#28564c; background:#fffdf8; font-size:11px; }
+.nearby-link:hover { background:#e8efe6; }
+.nearby-link svg { flex:0 0 auto; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .reminder-done { opacity:.56; }
 .check { width:19px; height:19px; border:1px solid #bac6b7; border-radius:50%; display:grid; place-items:center; color:#fff; background:transparent; }
@@ -228,6 +240,8 @@ h3 { font-size:14px; font-weight:700; margin-bottom:10px; }
  .chat-message { max-width:90%; }
  .chat-form { align-items:stretch; flex-direction:column; }
  .chat-form button { align-self:flex-end; }
+ .nearby-form { align-items:stretch; flex-direction:column; }
+ .nearby-form .btn { align-self:flex-start; }
 }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
 @media print {
